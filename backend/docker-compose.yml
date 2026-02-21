@@ -1,0 +1,29 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: rcp
+      POSTGRES_USER: rcp
+      POSTGRES_PASSWORD: rcp_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  api:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://rcp:rcp_dev_password@db:5432/rcp
+    depends_on:
+      - db
+    volumes:
+      - .:/app
+
+volumes:
+  pgdata:
