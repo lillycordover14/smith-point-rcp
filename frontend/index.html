@@ -7,8 +7,6 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
-  <!-- Backend URL config — edit this file to point at your deployed API -->
-  <script src="config.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
@@ -20,169 +18,151 @@
 <body>
   <div id="root"></div>
   <script type="text/babel" data-presets="react">
-    const { useState, useEffect, useCallback } = React;
+    const { useState, useEffect, useCallback, useMemo } = React;
 
-    // ─── BACKEND CONFIG ──────────────────────────────────────────────────────
-    // Set window.RCP_API_BASE before this script loads to point at your deployed backend.
-    // e.g. <script>window.RCP_API_BASE = "https://rcp-api.fly.dev"</script>
-    const API_BASE = (window.RCP_API_BASE || "http://localhost:8000").replace(/\/$/, "");
+    // ─── LOCAL STORAGE DATABASE ──────────────────────────────────────────────
+    // All company data is saved in the browser. No server needed.
+    const DB_KEY = "rcp_companies_v1";
 
-    // ─── API CLIENT ──────────────────────────────────────────────────────────
-    const api = {
-      async get(path) {
-        const res = await fetch(API_BASE + path);
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.detail || `HTTP ${res.status}`);
-        }
-        return res.json();
-      },
-      async post(path, data) {
-        const res = await fetch(API_BASE + path, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(data),
-        });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.detail || `HTTP ${res.status}`);
-        }
-        return res.json();
-      },
-    };
-
-    // ─── RESPONSE NORMALISER ─────────────────────────────────────────────────
-    // Converts backend snake_case → UI camelCase shape that all components expect
-    function mkInitials(name) {
-      return (name||"?").split(" ").filter(Boolean).map(w=>w[0]).join("").slice(0,2).toUpperCase();
+    function dbLoad() {
+      try { return JSON.parse(localStorage.getItem(DB_KEY) || "{}"); }
+      catch { return {}; }
     }
-    function normPerson(p) {
-      return {
-        id:           p.id,
-        name:         p.full_name,
-        title:        p.current_title,
-        initials:     mkInitials(p.full_name),
-        linkedin:     p.linkedin_url,
-        location:     p.location,
-      };
+    function dbSave(data) {
+      localStorage.setItem(DB_KEY, JSON.stringify(data));
     }
-    function normOverlaps(apiResp) {
-      // API returns { org, overlaps:[{sp_member, target_person, score, strength, signals}], total }
-      return (apiResp.overlaps || []).map(o => ({
-        spMember:     normPerson(o.sp_member),
-        targetPerson: normPerson(o.target_person),
-        score:        o.score,
-        strength:     o.strength,
-        signals:      o.signals,  // already {type,label,detail,points,icon}
-      }));
+    function dbGetCompany(slug) {
+      return dbLoad()[slug] || null;
+    }
+    function dbSaveCompany(slug, company) {
+      const all = dbLoad();
+      all[slug] = company;
+      dbSave(all);
+    }
+    function dbDeleteCompany(slug) {
+      const all = dbLoad();
+      delete all[slug];
+      dbSave(all);
+    }
+    function dbAllCompanies() {
+      return dbLoad();
     }
 
-    // ─── LOCAL FALLBACK DATA (used when backend is offline) ──────────────────
-    const LOCAL_SP = [
-      {id:"kb",initials:"KB",name:"Keith Block",title:"Founder & CEO",linkedin:"https://www.linkedin.com/in/keith-block-516a1811/",education:[{school:"Carnegie Mellon University",degree:"MS/BS",years:[1980,1984]}],orgs:["Oracle","Salesforce","Smith Point Capital"],location:"San Francisco, CA",board:["Salesforce"]},
-      {id:"bn",initials:"BN",name:"Burke Norton",title:"Co-founder & Managing Director",linkedin:"https://www.linkedin.com/in/burke-norton-121a1a2/",education:[{school:"UC Berkeley School of Law",degree:"JD",years:[1989,1993]}],orgs:["Wilson Sonsini","Expedia","Salesforce","Vista Equity Partners","Smith Point Capital"],location:"San Francisco, CA",board:[]},
-      {id:"cl",initials:"CL",name:"Christopher Lytle",title:"Co-founder & Managing Director",linkedin:"https://www.linkedin.com/in/chris-lytle-a8141a15/",education:[{school:"Lafayette College",degree:"BA",years:[1987,1991]}],orgs:["Longfellow Capital","Smith Point Capital"],location:"Old Greenwich, CT",board:[]},
-      {id:"jc",initials:"JC",name:"John Cummings",title:"Managing Director, CFO/COO",linkedin:"https://www.linkedin.com/in/johncummings/",education:[{school:"Columbia Business School",degree:"MBA",years:[1992,1994]}],orgs:["Smith Point Capital"],location:"San Francisco, CA",board:[]},
-      {id:"tp",initials:"TP",name:"Tyler Prince",title:"Managing Director, Head of Value Creation",linkedin:"https://www.linkedin.com/in/tyler-prince-210701/",education:[{school:"University of Illinois Urbana-Champaign",degree:"BA",years:[1993,1997]}],orgs:["Salesforce","ServiceNow","Smith Point Capital"],location:"Chicago, IL",board:[]},
-      {id:"bks",initials:"BK",name:"Brooke Kiley Slattery",title:"Principal Investor",linkedin:"https://www.linkedin.com/in/brooke-kiley-slattery-7372949a/",education:[{school:"University of Pennsylvania - The Wharton School",degree:"BS",years:[2008,2012]}],orgs:["Goldman Sachs","Smith Point Capital"],location:"New York, NY",board:[]},
-      {id:"ls",initials:"LS",name:"Lorenzo Salazar",title:"Principal Investor",linkedin:"https://www.linkedin.com/in/lorenzosalazar16/",education:[{school:"University of Texas at Austin",degree:"MBA",years:[2014,2016]}],orgs:["Smith Point Capital"],location:"Austin, TX",board:[]},
-      {id:"sp",initials:"SP",name:"Sewon Park",title:"Associate",linkedin:"https://www.linkedin.com/in/sewon-park-a939b9156/",education:[{school:"Harvard University",degree:"BA",years:[2017,2021]}],orgs:["Goldman Sachs","Smith Point Capital"],location:"New York, NY",board:[]},
-      {id:"kr",initials:"KR",name:"Katie Rodday",title:"Director of Operations",linkedin:"https://www.linkedin.com/in/katie-rodday-082071a/",education:[{school:"Stonehill College",degree:"BA",years:[2004,2008]}],orgs:["Smith Point Capital"],location:"Boston, MA",board:[]},
-      {id:"lc",initials:"LC",name:"Lilly Cordover",title:"Analyst",linkedin:"https://www.linkedin.com/in/lillycordover/",education:[{school:"University of Virginia - McIntire School of Commerce",degree:"BS",years:[2019,2023]}],orgs:["Fifth Wall","Smith Point Capital"],location:"New York, NY",board:[]},
-    ];
-    const LOCAL_COS = {
-      "salesforce":{name:"Salesforce",people:[
+    // ─── BUILT-IN DEMO COMPANIES (always available, not editable) ────────────
+    const DEMO_COS = {
+      "salesforce":{name:"Salesforce",demo:true,people:[
         {id:"m1",initials:"MB",name:"Marc Benioff",title:"CEO & Chairman",linkedin:"https://www.linkedin.com/in/marcbenioff/",education:[{school:"University of Southern California",degree:"BS",years:[1982,1986]}],orgs:["Salesforce","Oracle"],location:"San Francisco, CA",board:["Salesforce"]},
         {id:"m2",initials:"BT",name:"Bret Taylor",title:"Former Co-CEO",linkedin:"https://www.linkedin.com/in/bret-taylor/",education:[{school:"Stanford University",degree:"BS/MS",years:[1999,2003]}],orgs:["Salesforce","Google","Facebook"],location:"San Francisco, CA",board:["Salesforce"]},
         {id:"m3",initials:"PH",name:"Parker Harris",title:"CTO & Co-founder",education:[{school:"Middlebury College",degree:"BA",years:[1989,1993]}],orgs:["Salesforce"],location:"San Francisco, CA",board:[]},
       ]},
-      "stripe":{name:"Stripe",people:[
+      "stripe":{name:"Stripe",demo:true,people:[
         {id:"s1",initials:"PC",name:"Patrick Collison",title:"CEO & Co-founder",linkedin:"https://www.linkedin.com/in/patrickcollison/",education:[{school:"MIT",degree:"Started",years:[2007,2009]}],orgs:["Stripe"],location:"San Francisco, CA",board:["Stripe"]},
         {id:"s2",initials:"JC",name:"John Collison",title:"President & Co-founder",education:[{school:"Harvard University",degree:"Started",years:[2009,2010]}],orgs:["Stripe"],location:"San Francisco, CA",board:["Stripe"]},
         {id:"s3",initials:"DS",name:"Dhivya Suryadevara",title:"CFO",linkedin:"https://www.linkedin.com/in/dhivya-suryadevara/",education:[{school:"University of Michigan",degree:"MBA",years:[2001,2003]}],orgs:["Stripe","Goldman Sachs"],location:"San Francisco, CA",board:[]},
       ]},
-      "openai":{name:"OpenAI",people:[
+      "openai":{name:"OpenAI",demo:true,people:[
         {id:"o1",initials:"SA",name:"Sam Altman",title:"CEO",linkedin:"https://www.linkedin.com/in/sam-altman-1b5a7b/",education:[{school:"Stanford University",degree:"Started CS",years:[2003,2005]}],orgs:["OpenAI","Y Combinator"],location:"San Francisco, CA",board:["OpenAI"]},
         {id:"o2",initials:"GB",name:"Greg Brockman",title:"President",education:[{school:"Harvard University",degree:"Started",years:[2009,2010]}],orgs:["OpenAI","Stripe"],location:"San Francisco, CA",board:[]},
         {id:"o3",initials:"MM",name:"Mira Murati",title:"Former CTO",education:[{school:"Dartmouth College",degree:"BS",years:[2008,2012]}],orgs:["OpenAI","Tesla"],location:"San Francisco, CA",board:[]},
       ]},
-      "databricks":{name:"Databricks",people:[
+      "databricks":{name:"Databricks",demo:true,people:[
         {id:"d1",initials:"AG",name:"Ali Ghodsi",title:"CEO & Co-founder",education:[{school:"KTH Royal Institute",degree:"PhD",years:[2002,2006]}],orgs:["Databricks"],location:"San Francisco, CA",board:["Databricks"]},
         {id:"d2",initials:"NR",name:"Naveen Rao",title:"VP AI",education:[{school:"Stanford University",degree:"PhD",years:[2003,2009]}],orgs:["Databricks","Intel"],location:"San Francisco, CA",board:[]},
       ]},
-      "procurement-sciences":{name:"Procurement Sciences",people:[
+      "procurement-sciences":{name:"Procurement Sciences",demo:true,people:[
         {id:"ps1",initials:"AW",name:"Alex Wissner-Gross",title:"Founding Advisor",education:[{school:"Harvard University",degree:"AM/PhD",years:[2004,2007]}],orgs:["Procurement Sciences"],location:"Cambridge, MA",board:[]},
         {id:"ps2",initials:"PS",name:"Paul Smith",title:"CEO",education:[{school:"MIT Sloan School of Management",degree:"MBA",years:[2005,2007]}],orgs:["Procurement Sciences","McKinsey"],location:"Boston, MA",board:["Procurement Sciences"]},
         {id:"ps3",initials:"LE",name:"Lisa Edwards",title:"CFO",education:[{school:"Stanford University",degree:"MBA",years:[2010,2012]}],orgs:["Procurement Sciences","Goldman Sachs"],location:"San Francisco, CA",board:[]},
       ]},
     };
 
-    // ─── LOCAL SCORING ENGINE (offline fallback) ──────────────────────────────
+    // ─── SP TEAM (built-in, always available) ─────────────────────────────────
+    const SP_TEAM = [
+      {id:"kb",initials:"KB",name:"Keith Block",title:"Founder & CEO",linkedin:"https://www.linkedin.com/in/keith-block-516a1811/",education:[{school:"Carnegie Mellon University",degree:"MS/BS",years:[1980,1984]}],orgs:["Oracle","Salesforce"],location:"San Francisco, CA",board:["Salesforce"]},
+      {id:"bn",initials:"BN",name:"Burke Norton",title:"Co-founder & Managing Director",linkedin:"https://www.linkedin.com/in/burke-norton-121a1a2/",education:[{school:"UC Berkeley School of Law",degree:"JD",years:[1989,1993]}],orgs:["Wilson Sonsini","Expedia","Salesforce","Vista Equity Partners"],location:"San Francisco, CA",board:[]},
+      {id:"cl",initials:"CL",name:"Christopher Lytle",title:"Co-founder & Managing Director",linkedin:"https://www.linkedin.com/in/chris-lytle-a8141a15/",education:[{school:"Lafayette College",degree:"BA",years:[1987,1991]}],orgs:["Longfellow Capital"],location:"Old Greenwich, CT",board:[]},
+      {id:"jc",initials:"JC",name:"John Cummings",title:"Managing Director, CFO/COO",linkedin:"https://www.linkedin.com/in/johncummings/",education:[{school:"Columbia Business School",degree:"MBA",years:[1992,1994]}],orgs:[],location:"San Francisco, CA",board:[]},
+      {id:"tp",initials:"TP",name:"Tyler Prince",title:"Managing Director, Head of Value Creation",linkedin:"https://www.linkedin.com/in/tyler-prince-210701/",education:[{school:"University of Illinois Urbana-Champaign",degree:"BA",years:[1993,1997]}],orgs:["Salesforce","ServiceNow"],location:"Chicago, IL",board:[]},
+      {id:"bks",initials:"BK",name:"Brooke Kiley Slattery",title:"Principal Investor",linkedin:"https://www.linkedin.com/in/brooke-kiley-slattery-7372949a/",education:[{school:"University of Pennsylvania - The Wharton School",degree:"BS",years:[2008,2012]}],orgs:["Goldman Sachs"],location:"New York, NY",board:[]},
+      {id:"ls",initials:"LS",name:"Lorenzo Salazar",title:"Principal Investor",linkedin:"https://www.linkedin.com/in/lorenzosalazar16/",education:[{school:"University of Texas at Austin",degree:"MBA",years:[2014,2016]}],orgs:[],location:"Austin, TX",board:[]},
+      {id:"sp",initials:"SP",name:"Sewon Park",title:"Associate",linkedin:"https://www.linkedin.com/in/sewon-park-a939b9156/",education:[{school:"Harvard University",degree:"BA",years:[2017,2021]}],orgs:["Goldman Sachs"],location:"New York, NY",board:[]},
+      {id:"kr",initials:"KR",name:"Katie Rodday",title:"Director of Operations",linkedin:"https://www.linkedin.com/in/katie-rodday-082071a/",education:[{school:"Stonehill College",degree:"BA",years:[2004,2008]}],orgs:[],location:"Boston, MA",board:[]},
+      {id:"lc",initials:"LC",name:"Lilly Cordover",title:"Analyst",linkedin:"https://www.linkedin.com/in/lillycordover/",education:[{school:"University of Virginia - McIntire School of Commerce",degree:"BS",years:[2019,2023]}],orgs:["Fifth Wall"],location:"New York, NY",board:[]},
+    ];
+
+    // ─── SCORING ENGINE ──────────────────────────────────────────────────────
     function schoolNorm(n){ return n.toLowerCase().replace(/university|college|the\s|of\s/g,"").trim(); }
     function yrsOverlap(a,b){ return a&&b&&a[0]<=b[1]&&b[0]<=a[1]; }
     function orgEq(a,b){ return a.trim().toLowerCase()===b.trim().toLowerCase(); }
 
-    function localScore(sp, target) {
-      const signals=[];
-      for(const so of sp.orgs.filter(o=>o!=="Smith Point Capital"))
+    function scoreOnePair(sp, target) {
+      const signals = [];
+      for(const so of (sp.orgs||[]))
         for(const to of (target.orgs||[]))
-          if(orgEq(so,to)){signals.push({type:"company",label:`Both worked at ${so}`,detail:`${sp.name} and ${target.name} both have experience at ${so}.`,points:30,icon:"🏢"});break;}
+          if(orgEq(so,to)){
+            signals.push({type:"company",label:`Both worked at ${so}`,detail:`${sp.name} and ${target.name} both have experience at ${so}.`,points:30,icon:"🏢"});
+            break;
+          }
       for(const se of (sp.education||[]))
         for(const te of (target.education||[]))
           if(schoolNorm(se.school)===schoolNorm(te.school)){
             const ov=yrsOverlap(se.years,te.years);
-            signals.push({type:"education",label:ov?`Both attended ${se.school} at the same time`:`Both attended ${se.school}`,detail:ov?`${sp.name} (${se.years[0]}–${se.years[1]}) and ${target.name} (${te.years[0]}–${te.years[1]}) overlapped at ${se.school}.`:`${sp.name} (${se.years[0]}–${se.years[1]}) and ${target.name} (${te.years[0]}–${te.years[1]}) both attended ${se.school}.`,points:ov?20:12,icon:"🎓"});
+            signals.push({type:"education",
+              label:ov?`Both attended ${se.school} at the same time`:`Both attended ${se.school}`,
+              detail:ov
+                ?`${sp.name} (${se.years[0]}–${se.years[1]}) and ${target.name} (${te.years[0]}–${te.years[1]}) overlapped at ${se.school}.`
+                :`${sp.name} (${se.years[0]}–${se.years[1]}) and ${target.name} (${te.years[0]}–${te.years[1]}) both attended ${se.school}.`,
+              points:ov?20:12,icon:"🎓"});
           }
       for(const sb of (sp.board||[]))
         for(const tb of (target.board||[]))
-          if(orgEq(sb,tb)) signals.push({type:"board",label:`Shared board seat at ${sb}`,detail:`Both ${sp.name} and ${target.name} sit on the ${sb} board.`,points:20,icon:"🪑"});
-      if(sp.location&&target.location&&sp.location.split(",")[0].trim().toLowerCase()===target.location.split(",")[0].trim().toLowerCase())
+          if(orgEq(sb,tb))
+            signals.push({type:"board",label:`Shared board seat at ${sb}`,detail:`Both ${sp.name} and ${target.name} sit on the ${sb} board.`,points:20,icon:"🪑"});
+      if(sp.location&&target.location&&
+         sp.location.split(",")[0].trim().toLowerCase()===target.location.split(",")[0].trim().toLowerCase())
         signals.push({type:"location",label:`Same location — ${sp.location}`,detail:`Both are based in ${sp.location}.`,points:5,icon:"📍"});
       const score=Math.min(100,signals.reduce((a,s)=>a+s.points,0));
       return {signals,score,strength:score>=40?"strong":score>=20?"medium":"weak"};
     }
-    function localComputeAll(people) {
+
+    function computeAllOverlaps(companyPeople) {
       const out=[];
-      for(const p of people)
-        for(const sp of LOCAL_SP){
-          const {signals,score,strength}=localScore(sp,p);
+      for(const p of companyPeople)
+        for(const sp of SP_TEAM){
+          const {signals,score,strength}=scoreOnePair(sp,p);
           if(signals.length) out.push({spMember:sp,targetPerson:p,signals,score,strength});
         }
       return out.sort((a,b)=>b.score-a.score);
     }
 
-    function parseSlug(url) {
+    function makeId(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+    function mkInitials(name){ return (name||"?").split(" ").filter(Boolean).map(w=>w[0]).join("").slice(0,2).toUpperCase(); }
+    function parseSlug(url){
       const m=url.match(/linkedin\.com\/company\/([^/?#\s]+)/);
       return m?m[1].replace(/\/$/,""):null;
     }
 
     // ─── DESIGN TOKENS ───────────────────────────────────────────────────────
     const SC={strong:{color:"#22c55e",bg:"rgba(34,197,94,0.1)",label:"Strong"},medium:{color:"#f59e0b",bg:"rgba(245,158,11,0.1)",label:"Medium"},weak:{color:"#94a3b8",bg:"rgba(148,163,184,0.1)",label:"Weak"}};
-    const SIGCOL={company:"#3b82f6",education:"#8b5cf6",board:"#ec4899",location:"#10b981",interaction:"#f97316"};
+    const SIGCOL={company:"#3b82f6",education:"#8b5cf6",board:"#ec4899",location:"#10b981"};
 
-    // ─── COMPONENTS ──────────────────────────────────────────────────────────
-
+    // ─── UI COMPONENTS ───────────────────────────────────────────────────────
     function Avatar({initials,size=40,active=false}){
       return <div style={{width:size,height:size,borderRadius:"50%",flexShrink:0,background:active?"#0f172a":"#f1f5f9",border:active?"2.5px solid #3b82f6":"2px solid #e2e8f0",display:"flex",alignItems:"center",justifyContent:"center",fontSize:size*0.32,fontWeight:700,letterSpacing:"-0.5px",color:active?"#fff":"#475569",fontFamily:"'DM Sans',sans-serif",boxShadow:active?"0 0 0 3px rgba(59,130,246,0.15)":"none",transition:"all 0.2s"}}>{initials}</div>;
     }
-
     function Badge({strength}){
       const c=SC[strength]||SC.weak;
       return <span style={{display:"inline-flex",alignItems:"center",gap:5,padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:c.bg,color:c.color,fontFamily:"'DM Sans',sans-serif"}}><span style={{width:6,height:6,borderRadius:"50%",background:c.color,display:"inline-block"}}/>{c.label}</span>;
     }
-
     function Ring({score,size=50}){
       const r=(size-6)/2,circ=2*Math.PI*r,fill=(score/100)*circ,col=score>=40?"#22c55e":score>=20?"#f59e0b":"#94a3b8";
       return <div style={{position:"relative",width:size,height:size,flexShrink:0}}><svg width={size} height={size} style={{transform:"rotate(-90deg)"}}><circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#f1f5f9" strokeWidth={4}/><circle cx={size/2} cy={size/2} r={r} fill="none" stroke={col} strokeWidth={4} strokeDasharray={`${fill} ${circ-fill}`} strokeLinecap="round"/></svg><div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800,color:"#0f172a",fontFamily:"'DM Sans',sans-serif"}}>{score}</div></div>;
     }
-
     function PersonLink({person}){
       const [hov,setHov]=useState(false);
       if(!person) return null;
       const nm=<span style={{fontSize:14,fontWeight:700,color:hov&&person.linkedin?"#3b82f6":"#0f172a",transition:"color 0.15s",fontFamily:"'DM Sans',sans-serif"}}>{person.name}{person.linkedin&&<span style={{fontSize:10,marginLeft:3,opacity:hov?1:0.35}}>↗</span>}</span>;
-      return person.linkedin
-        ?<a href={person.linkedin} target="_blank" rel="noopener noreferrer" style={{textDecoration:"none"}} onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)}>{nm}</a>
-        :<div>{nm}</div>;
+      return person.linkedin?<a href={person.linkedin} target="_blank" rel="noopener noreferrer" style={{textDecoration:"none"}} onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)}>{nm}</a>:<div>{nm}</div>;
     }
 
     function NetworkGraph({overlaps,filter,onSelectNode}){
@@ -193,7 +173,7 @@
       const W=700,H=380,CX=W/2,CY=H/2,SPR=54,NR=32;
       const spPos={};sps.forEach((m,i)=>{const a=(i/Math.max(sps.length,1))*2*Math.PI-Math.PI/2,r=Math.min(140,55+sps.length*15);spPos[m.id]={x:CX-155+Math.cos(a)*r,y:CY+Math.sin(a)*r};});
       const tPos={};tgts.forEach((p,i)=>{const a=(i/Math.max(tgts.length,1))*2*Math.PI-Math.PI/2,r=Math.min(130,55+tgts.length*20);tPos[p.id]={x:CX+155+Math.cos(a)*r,y:CY+Math.sin(a)*r};});
-      return (
+      return(
         <div style={{background:"#fafbfc",borderRadius:16,border:"1px solid #e8edf2",overflow:"hidden",marginBottom:4}}>
           <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{display:"block"}}>
             <defs>
@@ -264,10 +244,7 @@
             <div key={header.id}>
               <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,padding:"0 4px"}}>
                 <Avatar initials={header.initials} size={38} active={isSP}/>
-                <div>
-                  <PersonLink person={header}/>
-                  <div style={{fontSize:11,color:"#94a3b8",fontFamily:"'DM Sans',sans-serif"}}>{header.title} · {items.length} overlap{items.length!==1?"s":""}</div>
-                </div>
+                <div><PersonLink person={header}/><div style={{fontSize:11,color:"#94a3b8",fontFamily:"'DM Sans',sans-serif"}}>{header.title} · {items.length} overlap{items.length!==1?"s":""}</div></div>
                 {!isSP&&<div style={{marginLeft:"auto"}}><Badge strength={items.sort((a,b)=>b.score-a.score)[0].strength}/></div>}
               </div>
               {items.map((o,i)=><OverlapCard key={i} overlap={o}/>)}
@@ -277,108 +254,138 @@
       );
     }
 
-    // ─── ADD COMPANY MODAL ───────────────────────────────────────────────────
-    function AddCompanyModal({onClose, onSuccess}){
-      const [step,setStep]=useState(1);
-      const [org,setOrg]=useState({name:"",slug:""});
-      const [orgId,setOrgId]=useState(null);
-      const [people,setPeople]=useState([{name:"",title:"",linkedin:""}]);
-      const [busy,setBusy]=useState(false);
+    // ─── ADD / EDIT COMPANY MODAL ─────────────────────────────────────────────
+    function CompanyModal({onClose, onSaved, editSlug=null}){
+      // If editSlug provided, we're editing an existing saved company
+      const existing = editSlug ? dbGetCompany(editSlug) : null;
+      const [step,setStep]=useState(existing?2:1);
+      const [org,setOrg]=useState({name:existing?.name||"",slug:editSlug||""});
+      const [people,setPeople]=useState(
+        existing?.people?.length ? existing.people.map(p=>({...p})) : [{name:"",title:"",linkedin:"",orgs:"",education:"",location:"",board:""}]
+      );
       const [err,setErr]=useState("");
 
-      async function saveOrg(){
+      function handleOrgNext(){
         if(!org.name.trim()){setErr("Company name is required");return;}
-        setBusy(true);setErr("");
-        try{
-          const slug=org.slug.trim()||org.name.trim().toLowerCase().replace(/\s+/g,"-").replace(/[^a-z0-9-]/g,"");
-          const res=await api.post("/api/orgs",{name:org.name.trim(),linkedin_slug:slug});
-          setOrgId(res.id);setStep(2);
-        }catch(e){setErr(e.message);}
-        setBusy(false);
+        setErr("");
+        const slug=editSlug||(org.slug.trim()||org.name.trim().toLowerCase().replace(/\s+/g,"-").replace(/[^a-z0-9-]/g,""));
+        setOrg(o=>({...o,slug}));
+        setStep(2);
       }
 
-      async function savePeople(){
-        setBusy(true);setErr("");
-        try{
-          for(const p of people){
-            if(!p.name.trim()) continue;
-            const person=await api.post("/api/people",{full_name:p.name.trim(),current_title:p.title.trim()||null,linkedin_url:p.linkedin.trim()||null,current_company:org.name,is_internal:false});
-            await api.post("/api/roles",{person_id:person.id,org_name:org.name});
-          }
-          setStep(3);
-          setTimeout(()=>{onSuccess(org);onClose();},1400);
-        }catch(e){setErr(e.message);}
-        setBusy(false);
+      function handleSave(){
+        const validPeople=people.filter(p=>p.name.trim()).map(p=>({
+          id: p.id||makeId(),
+          name: p.name.trim(),
+          initials: mkInitials(p.name),
+          title: p.title.trim()||"",
+          linkedin: p.linkedin.trim()||null,
+          // orgs field: comma-separated string → array
+          orgs: p.orgs ? p.orgs.split(",").map(s=>s.trim()).filter(Boolean) : (p.orgsArr||[]),
+          // education: free-text "School Name (2010-2014)" → parsed
+          education: parseEducation(p.education||""),
+          location: p.location.trim()||"",
+          board: p.board ? p.board.split(",").map(s=>s.trim()).filter(Boolean) : (p.boardArr||[]),
+        }));
+        if(!validPeople.length){setErr("Add at least one person");return;}
+        const slug=org.slug||org.name.trim().toLowerCase().replace(/\s+/g,"-").replace(/[^a-z0-9-]/g,"");
+        dbSaveCompany(slug,{name:org.name.trim(),slug,people:validPeople,savedAt:Date.now()});
+        onSaved(slug);
+        onClose();
       }
 
-      const Input=({value,onChange,placeholder,style={}})=>(
-        <input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
-          style={{height:40,border:"1.5px solid #e2e8f0",borderRadius:8,padding:"0 12px",fontSize:13,fontFamily:"'DM Sans',sans-serif",color:"#1e293b",outline:"none",width:"100%",...style}}
-          onFocus={e=>e.target.style.borderColor="#3b82f6"} onBlur={e=>e.target.style.borderColor="#e2e8f0"}/>
+      function parseEducation(str){
+        // Accepts: "Harvard University (2010-2014)" or "Harvard University"
+        if(!str.trim()) return [];
+        const m=str.match(/^(.+?)\s*\((\d{4})[–\-](\d{4})\)\s*$/);
+        if(m) return [{school:m[1].trim(),degree:"",years:[parseInt(m[2]),parseInt(m[3])]}];
+        return [{school:str.trim(),degree:"",years:null}];
+      }
+
+      const Inp=({label,value,onChange,placeholder,hint})=>(
+        <div>
+          <label style={{display:"block",fontSize:10,fontWeight:700,color:"#374151",fontFamily:"'DM Sans',sans-serif",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.3px"}}>{label}</label>
+          <input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder||""}
+            style={{height:38,border:"1.5px solid #e2e8f0",borderRadius:8,padding:"0 10px",fontSize:13,fontFamily:"'DM Sans',sans-serif",color:"#1e293b",outline:"none",width:"100%",transition:"border-color 0.15s"}}
+            onFocus={e=>e.target.style.borderColor="#3b82f6"} onBlur={e=>e.target.style.borderColor="#e2e8f0"}/>
+          {hint&&<div style={{fontSize:10,color:"#94a3b8",fontFamily:"'DM Sans',sans-serif",marginTop:3}}>{hint}</div>}
+        </div>
       );
 
       return(
         <div style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:20}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
-          <div style={{background:"#fff",borderRadius:20,padding:32,width:"100%",maxWidth:460,boxShadow:"0 24px 64px rgba(0,0,0,0.18)",animation:"slideIn 0.2s ease"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
+          <div style={{background:"#fff",borderRadius:20,padding:28,width:"100%",maxWidth:500,boxShadow:"0 24px 64px rgba(0,0,0,0.18)",animation:"slideIn 0.2s ease",maxHeight:"90vh",overflowY:"auto"}}>
+
+            {/* Header */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
               <div>
-                <div style={{fontSize:16,fontWeight:800,color:"#0f172a",fontFamily:"'DM Sans',sans-serif"}}>{step===1?"Add Company":step===2?"Add Their Team":"✅ Done!"}</div>
+                <div style={{fontSize:16,fontWeight:800,color:"#0f172a",fontFamily:"'DM Sans',sans-serif"}}>
+                  {editSlug?"Edit Company":step===1?"Add Company":"Add Their Team"}
+                </div>
                 <div style={{fontSize:12,color:"#94a3b8",fontFamily:"'DM Sans',sans-serif",marginTop:2}}>
-                  {step===1?"Create a new company in the database":step===2?"Add people to score against Smith Point":""}
+                  {step===1?"Name the company":"Add the people to score against SP"}
                 </div>
               </div>
-              <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:"#94a3b8",lineHeight:1}}>×</button>
+              <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:"#94a3b8",lineHeight:1,flexShrink:0}}>×</button>
             </div>
 
+            {/* Step 1 — Company name */}
             {step===1&&(
               <div style={{display:"flex",flexDirection:"column",gap:14}}>
-                <div>
-                  <label style={{display:"block",fontSize:11,fontWeight:700,color:"#374151",fontFamily:"'DM Sans',sans-serif",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.3px"}}>Company Name *</label>
-                  <Input value={org.name} onChange={v=>setOrg(o=>({...o,name:v}))} placeholder="e.g. Acme Corp"/>
-                </div>
-                <div>
-                  <label style={{display:"block",fontSize:11,fontWeight:700,color:"#374151",fontFamily:"'DM Sans',sans-serif",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.3px"}}>LinkedIn Slug</label>
-                  <Input value={org.slug} onChange={v=>setOrg(o=>({...o,slug:v}))} placeholder="e.g. acme-corp (auto-generated if blank)"/>
-                  <div style={{fontSize:11,color:"#94a3b8",marginTop:4,fontFamily:"'DM Sans',sans-serif"}}>From linkedin.com/company/<strong>acme-corp</strong></div>
-                </div>
+                <Inp label="Company Name *" value={org.name} onChange={v=>setOrg(o=>({...o,name:v}))} placeholder="e.g. Acme Corp"/>
+                <Inp label="LinkedIn Slug (optional)" value={org.slug} onChange={v=>setOrg(o=>({...o,slug:v}))} placeholder="e.g. acme-corp" hint="The part after linkedin.com/company/ — leave blank to auto-generate"/>
                 {err&&<div style={{fontSize:12,color:"#f43f5e",fontFamily:"'DM Sans',sans-serif"}}>{err}</div>}
-                <button onClick={saveOrg} disabled={busy} style={{alignSelf:"flex-end",background:"#0f172a",color:"#fff",border:"none",borderRadius:10,padding:"0 22px",height:42,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:8,opacity:busy?0.6:1}}>
-                  {busy&&<span style={{width:13,height:13,border:"2px solid rgba(255,255,255,0.3)",borderTopColor:"#fff",borderRadius:"50%",animation:"spin 0.7s linear infinite",display:"inline-block"}}/>}
+                <button onClick={handleOrgNext} style={{alignSelf:"flex-end",background:"#0f172a",color:"#fff",border:"none",borderRadius:10,padding:"0 22px",height:42,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
                   Next: Add People →
                 </button>
               </div>
             )}
 
+            {/* Step 2 — People */}
             {step===2&&(
-              <div style={{display:"flex",flexDirection:"column",gap:14}}>
-                <div style={{fontSize:13,color:"#64748b",fontFamily:"'DM Sans',sans-serif"}}>Add key leaders at <strong style={{color:"#0f172a"}}>{org.name}</strong> to score against the Smith Point team:</div>
-                <div style={{display:"flex",flexDirection:"column",gap:10,maxHeight:320,overflowY:"auto",paddingRight:4}}>
-                  {people.map((p,i)=>(
-                    <div key={i} style={{background:"#f8fafc",borderRadius:10,padding:12,display:"flex",flexDirection:"column",gap:8,position:"relative"}}>
-                      {people.length>1&&<button onClick={()=>setPeople(people.filter((_,j)=>j!==i))} style={{position:"absolute",top:8,right:8,background:"none",border:"none",fontSize:16,color:"#cbd5e1",cursor:"pointer",lineHeight:1}}>×</button>}
-                      <Input value={p.name} onChange={v=>{const n=[...people];n[i]={...n[i],name:v};setPeople(n);}} placeholder="Full name *"/>
-                      <Input value={p.title} onChange={v=>{const n=[...people];n[i]={...n[i],title:v};setPeople(n);}} placeholder="Title (e.g. CEO)"/>
-                      <Input value={p.linkedin} onChange={v=>{const n=[...people];n[i]={...n[i],linkedin:v};setPeople(n);}} placeholder="LinkedIn URL (optional)"/>
-                    </div>
-                  ))}
+              <div style={{display:"flex",flexDirection:"column",gap:16}}>
+                <div style={{fontSize:13,color:"#475569",fontFamily:"'DM Sans',sans-serif",background:"#f8fafc",padding:"10px 14px",borderRadius:10}}>
+                  💡 The more detail you add, the better the scoring. At minimum, just a name and their previous companies will work.
                 </div>
-                <button onClick={()=>setPeople([...people,{name:"",title:"",linkedin:""}])} style={{background:"none",border:"1.5px dashed #e2e8f0",borderRadius:10,padding:"9px 0",fontSize:12,fontWeight:600,color:"#94a3b8",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",transition:"all 0.15s"}} onMouseEnter={e=>{e.target.style.borderColor="#94a3b8";e.target.style.color="#475569";}} onMouseLeave={e=>{e.target.style.borderColor="#e2e8f0";e.target.style.color="#94a3b8";}}>+ Add another person</button>
+
+                {people.map((p,i)=>(
+                  <div key={i} style={{background:"#f8fafc",borderRadius:12,padding:14,display:"flex",flexDirection:"column",gap:10,position:"relative"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:2}}>
+                      <div style={{fontSize:12,fontWeight:700,color:"#0f172a",fontFamily:"'DM Sans',sans-serif"}}>Person {i+1}</div>
+                      {people.length>1&&<button onClick={()=>setPeople(people.filter((_,j)=>j!==i))} style={{background:"none",border:"none",fontSize:16,color:"#94a3b8",cursor:"pointer",lineHeight:1,padding:"0 2px"}}>× Remove</button>}
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                      <Inp label="Full Name *" value={p.name} onChange={v=>{const n=[...people];n[i]={...n[i],name:v};setPeople(n);}} placeholder="Jane Smith"/>
+                      <Inp label="Title" value={p.title} onChange={v=>{const n=[...people];n[i]={...n[i],title:v};setPeople(n);}} placeholder="CEO"/>
+                    </div>
+                    <Inp label="Previous Companies" value={p.orgs} onChange={v=>{const n=[...people];n[i]={...n[i],orgs:v};setPeople(n);}} placeholder="Goldman Sachs, McKinsey, Google" hint="Comma-separated — this drives the scoring"/>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                      <Inp label="Education" value={p.education} onChange={v=>{const n=[...people];n[i]={...n[i],education:v};setPeople(n);}} placeholder="Harvard University (2005-2009)" hint="School name (start-end year)"/>
+                      <Inp label="Location" value={p.location} onChange={v=>{const n=[...people];n[i]={...n[i],location:v};setPeople(n);}} placeholder="San Francisco, CA"/>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                      <Inp label="Board Seats" value={p.board} onChange={v=>{const n=[...people];n[i]={...n[i],board:v};setPeople(n);}} placeholder="Salesforce, Stripe" hint="Comma-separated"/>
+                      <Inp label="LinkedIn URL" value={p.linkedin} onChange={v=>{const n=[...people];n[i]={...n[i],linkedin:v};setPeople(n);}} placeholder="https://linkedin.com/in/…"/>
+                    </div>
+                  </div>
+                ))}
+
+                <button onClick={()=>setPeople([...people,{name:"",title:"",linkedin:"",orgs:"",education:"",location:"",board:""}])}
+                  style={{background:"none",border:"1.5px dashed #e2e8f0",borderRadius:10,padding:"9px 0",fontSize:12,fontWeight:600,color:"#94a3b8",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",transition:"all 0.15s"}}
+                  onMouseEnter={e=>{e.target.style.borderColor="#94a3b8";e.target.style.color="#475569";}}
+                  onMouseLeave={e=>{e.target.style.borderColor="#e2e8f0";e.target.style.color="#94a3b8";}}>
+                  + Add another person
+                </button>
+
                 {err&&<div style={{fontSize:12,color:"#f43f5e",fontFamily:"'DM Sans',sans-serif"}}>{err}</div>}
-                <div style={{display:"flex",gap:8,justifyContent:"space-between"}}>
-                  <button onClick={()=>setStep(1)} style={{background:"none",border:"1.5px solid #e2e8f0",borderRadius:10,padding:"0 16px",height:42,fontSize:13,fontWeight:600,color:"#64748b",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>← Back</button>
-                  <button onClick={savePeople} disabled={busy||!people.some(p=>p.name.trim())} style={{background:"#0f172a",color:"#fff",border:"none",borderRadius:10,padding:"0 22px",height:42,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:8,opacity:(busy||!people.some(p=>p.name.trim()))?0.5:1}}>
-                    {busy&&<span style={{width:13,height:13,border:"2px solid rgba(255,255,255,0.3)",borderTopColor:"#fff",borderRadius:"50%",animation:"spin 0.7s linear infinite",display:"inline-block"}}/>}
-                    Save & Run Scoring
+
+                <div style={{display:"flex",gap:8,justifyContent:"space-between",marginTop:4}}>
+                  {!editSlug&&<button onClick={()=>setStep(1)} style={{background:"none",border:"1.5px solid #e2e8f0",borderRadius:10,padding:"0 16px",height:42,fontSize:13,fontWeight:600,color:"#64748b",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>← Back</button>}
+                  <button onClick={handleSave} disabled={!people.some(p=>p.name.trim())}
+                    style={{background:"#0f172a",color:"#fff",border:"none",borderRadius:10,padding:"0 24px",height:42,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",marginLeft:"auto",opacity:!people.some(p=>p.name.trim())?0.4:1}}>
+                    💾 Save & Score
                   </button>
                 </div>
-              </div>
-            )}
-
-            {step===3&&(
-              <div style={{textAlign:"center",padding:"16px 0 8px"}}>
-                <div style={{fontSize:44,marginBottom:12}}>✅</div>
-                <div style={{fontSize:15,fontWeight:700,color:"#0f172a",fontFamily:"'DM Sans',sans-serif"}}>{org.name} added to database</div>
-                <div style={{fontSize:12,color:"#94a3b8",fontFamily:"'DM Sans',sans-serif",marginTop:8}}>Running overlap analysis now…</div>
               </div>
             )}
           </div>
@@ -386,17 +393,38 @@
       );
     }
 
-    // ─── BACKEND STATUS PILL ─────────────────────────────────────────────────
-    function StatusPill({status}){
-      const cfg={
-        checking:{dot:"#cbd5e1",text:"#94a3b8",bg:"#f8fafc",label:"Connecting…"},
-        live:    {dot:"#22c55e",text:"#166534",bg:"#f0fdf4",label:"Backend live"},
-        offline: {dot:"#f59e0b",text:"#92400e",bg:"#fffbeb",label:"Demo mode"},
-      }[status]||{};
-      return <div style={{display:"flex",alignItems:"center",gap:6,padding:"3px 10px",borderRadius:20,background:cfg.bg,fontSize:11,fontWeight:600,color:cfg.text,fontFamily:"'DM Sans',sans-serif"}}>
-        <span style={{width:6,height:6,borderRadius:"50%",background:cfg.dot,animation:status==="checking"?"blink 1.2s ease infinite":"none"}}/>
-        {cfg.label}
-      </div>;
+    // ─── SAVED COMPANIES SIDEBAR ──────────────────────────────────────────────
+    function SavedCompaniesList({onSelect, onEdit, onDelete, currentSlug}){
+      const saved=dbAllCompanies();
+      const slugs=Object.keys(saved).sort((a,b)=>saved[b].savedAt-saved[a].savedAt);
+      if(!slugs.length) return(
+        <div style={{padding:"20px 16px",textAlign:"center"}}>
+          <div style={{fontSize:28,marginBottom:8}}>📂</div>
+          <div style={{fontSize:12,color:"#94a3b8",fontFamily:"'DM Sans',sans-serif",lineHeight:1.5}}>No companies saved yet. Click "+ Add Company" to get started.</div>
+        </div>
+      );
+      return(
+        <div style={{display:"flex",flexDirection:"column",gap:6,padding:"8px 0"}}>
+          {slugs.map(slug=>{
+            const co=saved[slug];
+            const isActive=slug===currentSlug;
+            return(
+              <div key={slug} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderRadius:10,background:isActive?"#f0f4ff":"transparent",cursor:"pointer",transition:"background 0.15s"}}
+                onMouseEnter={e=>{if(!isActive)e.currentTarget.style.background="#f8fafc";}}
+                onMouseLeave={e=>{if(!isActive)e.currentTarget.style.background="transparent";}}>
+                <div style={{flex:1,minWidth:0}} onClick={()=>onSelect(slug)}>
+                  <div style={{fontSize:13,fontWeight:600,color:isActive?"#1e40af":"#0f172a",fontFamily:"'DM Sans',sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{co.name}</div>
+                  <div style={{fontSize:11,color:"#94a3b8",fontFamily:"'DM Sans',sans-serif"}}>{co.people?.length||0} people · saved locally</div>
+                </div>
+                <button onClick={()=>onEdit(slug)} title="Edit" style={{background:"none",border:"none",fontSize:14,cursor:"pointer",color:"#94a3b8",padding:"2px 4px",borderRadius:4,flexShrink:0}}
+                  onMouseEnter={e=>e.target.style.color="#475569"} onMouseLeave={e=>e.target.style.color="#94a3b8"}>✏️</button>
+                <button onClick={()=>onDelete(slug)} title="Delete" style={{background:"none",border:"none",fontSize:14,cursor:"pointer",color:"#94a3b8",padding:"2px 4px",borderRadius:4,flexShrink:0}}
+                  onMouseEnter={e=>e.target.style.color="#f43f5e"} onMouseLeave={e=>e.target.style.color="#94a3b8"}>🗑️</button>
+              </div>
+            );
+          })}
+        </div>
+      );
     }
 
     // ─── MAIN APP ────────────────────────────────────────────────────────────
@@ -405,57 +433,68 @@
       const [loading,setLoading]=useState(false);
       const [results,setResults]=useState(null);
       const [companyName,setCompanyName]=useState("");
+      const [currentSlug,setCurrentSlug]=useState(null);
       const [view,setView]=useState("network");
       const [groupBy,setGroupBy]=useState("sp");
       const [filter,setFilter]=useState("all");
       const [selectedNode,setSelectedNode]=useState(null);
       const [urlErr,setUrlErr]=useState("");
-      const [apiErr,setApiErr]=useState("");
-      const [backendStatus,setBackendStatus]=useState("checking");
-      const [showAdd,setShowAdd]=useState(false);
+      const [showModal,setShowModal]=useState(false);
+      const [editSlug,setEditSlug]=useState(null);
+      const [savedCount,setSavedCount]=useState(()=>Object.keys(dbAllCompanies()).length);
+      const [sidebarOpen,setSidebarOpen]=useState(false);
 
-      useEffect(()=>{
-        api.get("/api/health").then(()=>setBackendStatus("live")).catch(()=>setBackendStatus("offline"));
-      },[]);
+      function refreshSavedCount(){ setSavedCount(Object.keys(dbAllCompanies()).length); }
 
-      const handleFind=useCallback(async()=>{
+      function runSearch(slug, people, name){
+        setLoading(true);setResults(null);setSelectedNode(null);setCurrentSlug(slug);
+        setTimeout(()=>{
+          setResults(computeAllOverlaps(people));
+          setCompanyName(name);
+          setLoading(false);
+        },400);
+      }
+
+      const handleFind=useCallback(()=>{
         if(!url.trim()){setUrlErr("Please enter a LinkedIn company URL");return;}
         const slug=parseSlug(url);
         if(!slug){setUrlErr("Please enter a valid LinkedIn company URL (linkedin.com/company/…)");return;}
-        setUrlErr("");setApiErr("");setLoading(true);setResults(null);setSelectedNode(null);
+        setUrlErr("");
+        // Check saved first, then demo
+        const saved=dbGetCompany(slug);
+        if(saved){ runSearch(slug,saved.people,saved.name); return; }
+        const demo=DEMO_COS[slug];
+        if(demo){ runSearch(slug,demo.people,demo.name); return; }
+        // Not found
+        setUrlErr(`"${slug}" hasn't been added yet — click "+ Add Company" to add it.`);
+      },[url]);
 
-        if(backendStatus==="live"){
-          try{
-            const data=await api.get(`/api/connectivity/company?linkedin_slug=${encodeURIComponent(slug)}`);
-            setResults(normOverlaps(data));
-            setCompanyName(data.org?.name||slug);
-          }catch(e){
-            const notInDB=e.message.toLowerCase().includes("not found");
-            if(notInDB){
-              setApiErr(`"${slug}" isn't in the database yet.`);
-              // fall back to local demo data if available
-              const co=LOCAL_COS[slug];
-              if(co){setResults(localComputeAll(co.people));setCompanyName(co.name);}
-              else{setResults([]);setCompanyName(slug);}
-            } else {
-              setApiErr(`API error: ${e.message}`);
-              setResults([]);setCompanyName(slug);
-            }
-          }
-        } else {
-          // offline — local engine
-          await new Promise(r=>setTimeout(r,650));
-          const co=LOCAL_COS[slug]||{name:slug.charAt(0).toUpperCase()+slug.slice(1),people:[]};
-          setResults(localComputeAll(co.people));
-          setCompanyName(co.name);
-        }
-        setLoading(false);
-      },[url,backendStatus]);
+      function handleSelectSaved(slug){
+        const co=dbGetCompany(slug);
+        if(!co) return;
+        setUrl(`https://www.linkedin.com/company/${slug}/`);
+        setSidebarOpen(false);
+        runSearch(slug,co.people,co.name);
+      }
+
+      function handleDelete(slug){
+        if(!confirm(`Delete ${dbGetCompany(slug)?.name}? This cannot be undone.`)) return;
+        dbDeleteCompany(slug);
+        refreshSavedCount();
+        if(currentSlug===slug){setResults(null);setCurrentSlug(null);setCompanyName("");}
+      }
+
+      function handleSaved(slug){
+        refreshSavedCount();
+        const co=dbGetCompany(slug);
+        if(co) runSearch(slug,co.people,co.name);
+      }
 
       const strongN=results?.filter(o=>o.strength==="strong").length||0;
       const medN=results?.filter(o=>o.strength==="medium").length||0;
       const weakN=results?.filter(o=>o.strength==="weak").length||0;
       const total=results?.length||0;
+      const isDemo=currentSlug&&!!DEMO_COS[currentSlug]&&!dbGetCompany(currentSlug);
 
       const Tb=({active,onClick,children})=>(
         <button onClick={onClick} style={{padding:"6px 14px",borderRadius:8,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",transition:"all 0.15s",border:"1.5px solid",background:active?"#0f172a":"#fff",color:active?"#fff":"#64748b",borderColor:active?"#0f172a":"#e2e8f0"}}
@@ -469,7 +508,6 @@
             @keyframes slideIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
             @keyframes spin{to{transform:rotate(360deg)}}
             @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
-            @keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}
             .ui-input{height:44px;border:1.5px solid #e2e8f0;border-radius:10px;padding:0 14px;font-size:14px;font-family:'DM Sans',sans-serif;color:#1e293b;background:#fff;outline:none;transition:border-color 0.15s,box-shadow 0.15s;width:100%;}
             .ui-input:focus{border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,0.1);}
             .ui-input::placeholder{color:#cbd5e1;}
@@ -482,25 +520,28 @@
             .filter-chip{padding:4px 14px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;border:1.5px solid transparent;font-family:'DM Sans',sans-serif;transition:all 0.15s;}
           `}</style>
 
-          <div style={{minHeight:"100vh",background:"#f4f6f9"}}>
-            {showAdd&&<AddCompanyModal onClose={()=>setShowAdd(false)} onSuccess={org=>{
-              const slug=org.slug||org.name.toLowerCase().replace(/\s+/g,"-");
-              setUrl(`https://www.linkedin.com/company/${slug}/`);
-              setShowAdd(false);
-              setTimeout(handleFind,200);
-            }}/>}
+          {(showModal||editSlug)&&<CompanyModal
+            onClose={()=>{setShowModal(false);setEditSlug(null);}}
+            onSaved={handleSaved}
+            editSlug={editSlug}
+          />}
+
+          <div style={{minHeight:"100vh",background:"#f4f6f9",display:"flex",flexDirection:"column"}}>
 
             {/* ── Header ── */}
-            <div style={{background:"#fff",borderBottom:"1px solid #e8edf2",padding:"0 32px",height:56,display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:10}}>
+            <div style={{background:"#fff",borderBottom:"1px solid #e8edf2",padding:"0 24px",height:56,display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:10,flexShrink:0}}>
               <div style={{display:"flex",alignItems:"center",gap:12}}>
                 <div style={{width:32,height:32,borderRadius:8,background:"#0f172a",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800,color:"#fff",letterSpacing:"-0.5px"}}>SP</div>
                 <span style={{fontSize:15,fontWeight:700,color:"#0f172a",fontFamily:"'DM Sans',sans-serif"}}>Smith Point</span>
                 <span style={{color:"#e2e8f0",fontSize:14,userSelect:"none"}}>|</span>
                 <span style={{fontSize:13,color:"#94a3b8",fontFamily:"'DM Sans',sans-serif"}}>Research Dashboard</span>
               </div>
-              <div style={{display:"flex",alignItems:"center",gap:12}}>
-                <StatusPill status={backendStatus}/>
-                <span style={{fontSize:11,color:"#cbd5e1",fontFamily:"'DM Mono',monospace"}}>v3.0</span>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                {/* Saved companies count pill */}
+                <button onClick={()=>setSidebarOpen(s=>!s)} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 12px",borderRadius:20,background:"#f1f5f9",border:"1.5px solid #e2e8f0",fontSize:11,fontWeight:600,color:"#475569",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",transition:"all 0.15s"}}
+                  onMouseEnter={e=>e.currentTarget.style.borderColor="#94a3b8"} onMouseLeave={e=>e.currentTarget.style.borderColor="#e2e8f0"}>
+                  📂 {savedCount} saved{savedCount===1?"":" "}
+                </button>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
                   <div style={{width:28,height:28,borderRadius:"50%",background:"#f1f5f9",border:"1.5px solid #e2e8f0",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:"#64748b",fontFamily:"'DM Sans',sans-serif"}}>LC</div>
                   <span style={{fontSize:12,color:"#64748b",fontFamily:"'DM Sans',sans-serif"}}>Lilly Cordover</span>
@@ -508,158 +549,172 @@
               </div>
             </div>
 
-            {/* ── Main content ── */}
-            <div style={{maxWidth:860,margin:"0 auto",padding:"32px 20px"}}>
+            <div style={{display:"flex",flex:1,minHeight:0}}>
 
-              {/* Input card */}
-              <div style={{background:"#fff",borderRadius:20,border:"1px solid #e8edf2",padding:"28px 32px",marginBottom:20,boxShadow:"0 1px 4px rgba(0,0,0,0.04)",animation:"fadeUp 0.3s ease"}}>
-                <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:24}}>
-                  <div style={{width:44,height:44,borderRadius:12,background:"#f1f5f9",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>👥</div>
-                  <div style={{flex:1}}>
-                    <div style={{fontSize:17,fontWeight:800,color:"#0f172a",fontFamily:"'DM Sans',sans-serif"}}>Smith Point Overlap</div>
-                    <div style={{fontSize:13,color:"#94a3b8",fontFamily:"'DM Sans',sans-serif",marginTop:2}}>Find connections between any company and the Smith Point team</div>
+              {/* ── Saved Companies Sidebar ── */}
+              {sidebarOpen&&(
+                <div style={{width:260,background:"#fff",borderRight:"1px solid #e8edf2",flexShrink:0,display:"flex",flexDirection:"column",animation:"slideIn 0.2s ease"}}>
+                  <div style={{padding:"16px 16px 8px",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:"1px solid #f0f2f5"}}>
+                    <div style={{fontSize:13,fontWeight:700,color:"#0f172a",fontFamily:"'DM Sans',sans-serif"}}>Saved Companies</div>
+                    <button onClick={()=>setSidebarOpen(false)} style={{background:"none",border:"none",fontSize:18,cursor:"pointer",color:"#94a3b8",lineHeight:1}}>×</button>
                   </div>
-                  {backendStatus==="live"&&(
-                    <button onClick={()=>setShowAdd(true)} style={{background:"none",border:"1.5px solid #e2e8f0",borderRadius:10,padding:"0 16px",height:38,fontSize:12,fontWeight:700,color:"#475569",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap",transition:"all 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor="#0f172a";e.currentTarget.style.color="#0f172a";}} onMouseLeave={e=>{e.currentTarget.style.borderColor="#e2e8f0";e.currentTarget.style.color="#475569";}}>+ Add Company</button>
-                  )}
-                </div>
-
-                <div style={{marginBottom:16}}>
-                  <label style={{display:"block",fontSize:12,fontWeight:700,color:"#374151",fontFamily:"'DM Sans',sans-serif",marginBottom:8,letterSpacing:"0.3px",textTransform:"uppercase"}}>Company LinkedIn URL</label>
-                  <div style={{display:"flex",gap:10}}>
-                    <div style={{position:"relative",flex:1}}>
-                      <input className={`ui-input${urlErr?" err":""}`} value={url}
-                        onChange={e=>{setUrl(e.target.value);setUrlErr("");setApiErr("");}}
-                        onKeyDown={e=>e.key==="Enter"&&handleFind()}
-                        placeholder="https://www.linkedin.com/company/…"/>
-                      <span style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",color:"#cbd5e1",fontSize:14,pointerEvents:"none"}}>⌄</span>
-                    </div>
-                    <button className="find-btn" onClick={handleFind} disabled={loading}>
-                      {loading?<span style={{width:15,height:15,border:"2.5px solid rgba(255,255,255,0.3)",borderTopColor:"#fff",borderRadius:"50%",animation:"spin 0.7s linear infinite",display:"inline-block"}}/>:"👥"}
-                      Find Overlaps
-                    </button>
+                  <div style={{flex:1,overflowY:"auto"}}>
+                    <SavedCompaniesList
+                      onSelect={handleSelectSaved}
+                      onEdit={slug=>{setEditSlug(slug);setSidebarOpen(false);}}
+                      onDelete={handleDelete}
+                      currentSlug={currentSlug}
+                    />
                   </div>
-                  {urlErr&&<div style={{fontSize:12,color:"#f43f5e",marginTop:6,fontFamily:"'DM Sans',sans-serif"}}>{urlErr}</div>}
-                  {apiErr&&(
-                    <div style={{marginTop:8,padding:"10px 14px",background:"#fffbeb",border:"1px solid #fde68a",borderRadius:10,display:"flex",alignItems:"flex-start",gap:8}}>
-                      <span style={{fontSize:14,flexShrink:0}}>⚠️</span>
-                      <div style={{fontSize:12,color:"#92400e",fontFamily:"'DM Sans',sans-serif",lineHeight:1.5}}>
-                        {apiErr}{" "}
-                        {backendStatus==="live"&&<button onClick={()=>setShowAdd(true)} style={{background:"none",border:"none",color:"#d97706",fontWeight:700,cursor:"pointer",textDecoration:"underline",fontFamily:"'DM Sans',sans-serif",fontSize:12,padding:0}}>Add it now →</button>}
-                      </div>
-                    </div>
-                  )}
-                  <div style={{display:"flex",gap:8,marginTop:10,alignItems:"center",flexWrap:"wrap"}}>
-                    <span style={{fontSize:11,color:"#94a3b8",fontFamily:"'DM Sans',sans-serif"}}>{backendStatus==="live"?"Try:":"Demo:"}</span>
-                    {[["Salesforce","salesforce"],["Stripe","stripe"],["OpenAI","openai"],["Databricks","databricks"],["Procurement Sciences","procurement-sciences"]].map(([label,slug])=>(
-                      <button key={slug} className="chip-btn" onClick={()=>{setUrl(`https://www.linkedin.com/company/${slug}/`);setUrlErr("");setApiErr("");}}>
-                        {label}
-                      </button>
-                    ))}
+                  <div style={{padding:12,borderTop:"1px solid #f0f2f5"}}>
+                    <button onClick={()=>{setShowModal(true);setSidebarOpen(false);}} style={{width:"100%",background:"#0f172a",color:"#fff",border:"none",borderRadius:10,height:40,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>+ Add Company</button>
                   </div>
-                </div>
-              </div>
-
-              {/* Loading */}
-              {loading&&(
-                <div style={{background:"#fff",borderRadius:20,border:"1px solid #e8edf2",padding:"56px 32px",textAlign:"center",animation:"fadeUp 0.25s ease"}}>
-                  <div style={{width:40,height:40,border:"3px solid #f1f5f9",borderTopColor:"#0f172a",borderRadius:"50%",animation:"spin 0.8s linear infinite",margin:"0 auto 18px"}}/>
-                  <div style={{fontSize:14,fontWeight:600,color:"#475569",fontFamily:"'DM Sans',sans-serif"}}>{backendStatus==="live"?"Querying database & scoring connections…":"Analyzing connections…"}</div>
-                  <div style={{fontSize:12,color:"#94a3b8",fontFamily:"'DM Sans',sans-serif",marginTop:6}}>Scanning employment history, education, boards &amp; location</div>
                 </div>
               )}
 
-              {/* Results */}
-              {results&&!loading&&(
-                <div style={{animation:"fadeUp 0.3s ease"}}>
-                  <div style={{background:"#fff",borderRadius:16,border:"1px solid #e8edf2",padding:"16px 20px",marginBottom:14,boxShadow:"0 1px 4px rgba(0,0,0,0.04)"}}>
-                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:12}}>
-                      <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-                        <div style={{fontSize:13,fontWeight:700,color:"#0f172a",fontFamily:"'DM Sans',sans-serif",background:"#f1f5f9",padding:"4px 12px",borderRadius:8}}>
-                          {total} overlap{total!==1?"s":""} found
-                          {companyName&&<span style={{color:"#94a3b8",fontWeight:500}}> · {companyName}</span>}
-                          {backendStatus==="offline"&&<span style={{color:"#f59e0b",fontWeight:500,fontSize:11}}> · demo</span>}
-                        </div>
-                        <div style={{display:"flex",gap:6}}>
-                          <Tb active={groupBy==="sp"} onClick={()=>setGroupBy("sp")}>By SP Member</Tb>
-                          <Tb active={groupBy==="leader"} onClick={()=>setGroupBy("leader")}>By Company Leader</Tb>
-                        </div>
+              {/* ── Main content ── */}
+              <div style={{flex:1,overflowY:"auto",padding:"28px 24px"}}>
+                <div style={{maxWidth:860,margin:"0 auto"}}>
+
+                  {/* Input card */}
+                  <div style={{background:"#fff",borderRadius:20,border:"1px solid #e8edf2",padding:"24px 28px",marginBottom:20,boxShadow:"0 1px 4px rgba(0,0,0,0.04)",animation:"fadeUp 0.3s ease"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:20}}>
+                      <div style={{width:44,height:44,borderRadius:12,background:"#f1f5f9",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>👥</div>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:17,fontWeight:800,color:"#0f172a",fontFamily:"'DM Sans',sans-serif"}}>Smith Point Overlap</div>
+                        <div style={{fontSize:13,color:"#94a3b8",fontFamily:"'DM Sans',sans-serif",marginTop:2}}>Find connections between any company and the Smith Point team</div>
                       </div>
-                      <div style={{display:"flex",gap:6}}>
-                        <Tb active={view==="network"} onClick={()=>setView("network")}>◎ Network</Tb>
-                        <Tb active={view==="list"} onClick={()=>setView("list")}>≡ List</Tb>
-                      </div>
+                      <button onClick={()=>setShowModal(true)} style={{background:"#0f172a",color:"#fff",border:"none",borderRadius:10,padding:"0 16px",height:38,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap",flexShrink:0,transition:"all 0.15s"}}
+                        onMouseEnter={e=>e.currentTarget.style.background="#1e293b"} onMouseLeave={e=>e.currentTarget.style.background="#0f172a"}>
+                        + Add Company
+                      </button>
                     </div>
+
+                    <div style={{marginBottom:12}}>
+                      <label style={{display:"block",fontSize:12,fontWeight:700,color:"#374151",fontFamily:"'DM Sans',sans-serif",marginBottom:8,letterSpacing:"0.3px",textTransform:"uppercase"}}>Company LinkedIn URL</label>
+                      <div style={{display:"flex",gap:10}}>
+                        <div style={{position:"relative",flex:1}}>
+                          <input className={`ui-input${urlErr?" err":""}`} value={url}
+                            onChange={e=>{setUrl(e.target.value);setUrlErr("");}}
+                            onKeyDown={e=>e.key==="Enter"&&handleFind()}
+                            placeholder="https://www.linkedin.com/company/…"/>
+                          <span style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",color:"#cbd5e1",fontSize:14,pointerEvents:"none"}}>⌄</span>
+                        </div>
+                        <button className="find-btn" onClick={handleFind} disabled={loading}>
+                          {loading?<span style={{width:15,height:15,border:"2.5px solid rgba(255,255,255,0.3)",borderTopColor:"#fff",borderRadius:"50%",animation:"spin 0.7s linear infinite",display:"inline-block"}}/>:"👥"}
+                          Find Overlaps
+                        </button>
+                      </div>
+                      {urlErr&&<div style={{fontSize:12,color:"#f43f5e",marginTop:6,fontFamily:"'DM Sans',sans-serif"}}>{urlErr}</div>}
+                    </div>
+
                     <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-                      <span style={{fontSize:10,fontWeight:700,color:"#94a3b8",fontFamily:"'DM Sans',sans-serif",letterSpacing:"0.6px",textTransform:"uppercase"}}>Filter</span>
-                      {[
-                        {k:"all",   label:`All (${total})`,    ac:"#fff",ab:"#0f172a",ic:"#64748b",ib:"#f8fafc",ib2:"#e8edf2"},
-                        {k:"strong",label:`Strong (${strongN})`,ac:"#fff",ab:"#22c55e",ic:"#22c55e",ib:"#f0fdf4",ib2:"transparent"},
-                        {k:"medium",label:`Medium (${medN})`,  ac:"#fff",ab:"#f59e0b",ic:"#f59e0b",ib:"#fffbeb",ib2:"transparent"},
-                        {k:"weak",  label:`Weak (${weakN})`,   ac:"#fff",ab:"#94a3b8",ic:"#94a3b8",ib:"#f8fafc",ib2:"transparent"},
-                      ].map(c=>(
-                        <button key={c.k} className="filter-chip" onClick={()=>setFilter(c.k)}
-                          style={{background:filter===c.k?c.ab:c.ib,color:filter===c.k?c.ac:c.ic,borderColor:filter===c.k?c.ab:c.ib2}}>
-                          {c.label}
+                      <span style={{fontSize:11,color:"#94a3b8",fontFamily:"'DM Sans',sans-serif"}}>Demo companies:</span>
+                      {Object.entries(DEMO_COS).map(([slug,co])=>(
+                        <button key={slug} className="chip-btn" onClick={()=>{setUrl(`https://www.linkedin.com/company/${slug}/`);setUrlErr("");}}>
+                          {co.name}
                         </button>
                       ))}
                     </div>
                   </div>
 
-                  {view==="network"&&(
-                    <>
-                      <NetworkGraph overlaps={results} filter={filter} onSelectNode={setSelectedNode}/>
-                      {selectedNode?(
-                        <div style={{marginTop:14}}>
-                          {(selectedNode.type==="sp"
-                            ?results.filter(o=>o.spMember.id===selectedNode.member.id&&(filter==="all"||o.strength===filter))
-                            :results.filter(o=>o.targetPerson.id===selectedNode.person.id&&(filter==="all"||o.strength===filter))
-                          ).map((o,i)=><OverlapCard key={i} overlap={o} onClose={()=>setSelectedNode(null)}/>)}
+                  {/* Loading */}
+                  {loading&&(
+                    <div style={{background:"#fff",borderRadius:20,border:"1px solid #e8edf2",padding:"56px 32px",textAlign:"center",animation:"fadeUp 0.25s ease"}}>
+                      <div style={{width:40,height:40,border:"3px solid #f1f5f9",borderTopColor:"#0f172a",borderRadius:"50%",animation:"spin 0.8s linear infinite",margin:"0 auto 18px"}}/>
+                      <div style={{fontSize:14,fontWeight:600,color:"#475569",fontFamily:"'DM Sans',sans-serif"}}>Analyzing connections…</div>
+                      <div style={{fontSize:12,color:"#94a3b8",fontFamily:"'DM Sans',sans-serif",marginTop:6}}>Scanning employment history, education, boards &amp; location</div>
+                    </div>
+                  )}
+
+                  {/* Results */}
+                  {results&&!loading&&(
+                    <div style={{animation:"fadeUp 0.3s ease"}}>
+                      <div style={{background:"#fff",borderRadius:16,border:"1px solid #e8edf2",padding:"16px 20px",marginBottom:14,boxShadow:"0 1px 4px rgba(0,0,0,0.04)"}}>
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:12}}>
+                          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                            <div style={{fontSize:13,fontWeight:700,color:"#0f172a",fontFamily:"'DM Sans',sans-serif",background:"#f1f5f9",padding:"4px 12px",borderRadius:8,display:"flex",alignItems:"center",gap:8}}>
+                              {total} overlap{total!==1?"s":""} found
+                              {companyName&&<span style={{color:"#94a3b8",fontWeight:500}}>· {companyName}</span>}
+                              {isDemo&&<span style={{fontSize:10,background:"#f0f9ff",color:"#0369a1",padding:"2px 7px",borderRadius:8,fontWeight:600,border:"1px solid #bae6fd"}}>demo</span>}
+                              {!isDemo&&currentSlug&&<span style={{fontSize:10,background:"#f0fdf4",color:"#166534",padding:"2px 7px",borderRadius:8,fontWeight:600,border:"1px solid #bbf7d0"}}>💾 saved</span>}
+                            </div>
+                            <div style={{display:"flex",gap:6}}>
+                              <Tb active={groupBy==="sp"} onClick={()=>setGroupBy("sp")}>By SP Member</Tb>
+                              <Tb active={groupBy==="leader"} onClick={()=>setGroupBy("leader")}>By Company Leader</Tb>
+                            </div>
+                          </div>
+                          <div style={{display:"flex",gap:6}}>
+                            <Tb active={view==="network"} onClick={()=>setView("network")}>◎ Network</Tb>
+                            <Tb active={view==="list"} onClick={()=>setView("list")}>≡ List</Tb>
+                          </div>
                         </div>
-                      ):(
-                        <div style={{textAlign:"center",padding:"12px 0 4px",fontSize:12,color:"#94a3b8",fontFamily:"'DM Sans',sans-serif"}}>↑ Click any node to see overlap details</div>
+                        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                          <span style={{fontSize:10,fontWeight:700,color:"#94a3b8",fontFamily:"'DM Sans',sans-serif",letterSpacing:"0.6px",textTransform:"uppercase"}}>Filter</span>
+                          {[
+                            {k:"all",   label:`All (${total})`,    ac:"#fff",ab:"#0f172a",ic:"#64748b",ib:"#f8fafc",ib2:"#e8edf2"},
+                            {k:"strong",label:`Strong (${strongN})`,ac:"#fff",ab:"#22c55e",ic:"#22c55e",ib:"#f0fdf4",ib2:"transparent"},
+                            {k:"medium",label:`Medium (${medN})`,  ac:"#fff",ab:"#f59e0b",ic:"#f59e0b",ib:"#fffbeb",ib2:"transparent"},
+                            {k:"weak",  label:`Weak (${weakN})`,   ac:"#fff",ab:"#94a3b8",ic:"#94a3b8",ib:"#f8fafc",ib2:"transparent"},
+                          ].map(c=>(
+                            <button key={c.k} className="filter-chip" onClick={()=>setFilter(c.k)}
+                              style={{background:filter===c.k?c.ab:c.ib,color:filter===c.k?c.ac:c.ic,borderColor:filter===c.k?c.ab:c.ib2}}>
+                              {c.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {view==="network"&&(
+                        <>
+                          <NetworkGraph overlaps={results} filter={filter} onSelectNode={setSelectedNode}/>
+                          {selectedNode?(
+                            <div style={{marginTop:14}}>
+                              {(selectedNode.type==="sp"
+                                ?results.filter(o=>o.spMember.id===selectedNode.member.id&&(filter==="all"||o.strength===filter))
+                                :results.filter(o=>o.targetPerson.id===selectedNode.person.id&&(filter==="all"||o.strength===filter))
+                              ).map((o,i)=><OverlapCard key={i} overlap={o} onClose={()=>setSelectedNode(null)}/>)}
+                            </div>
+                          ):(
+                            <div style={{textAlign:"center",padding:"12px 0 4px",fontSize:12,color:"#94a3b8",fontFamily:"'DM Sans',sans-serif"}}>↑ Click any node to see overlap details</div>
+                          )}
+                        </>
                       )}
-                    </>
+                      {view==="list"&&<OverlapList overlaps={results} groupBy={groupBy} filter={filter}/>}
+                      {total===0&&(
+                        <div style={{background:"#fff",borderRadius:20,border:"1px solid #e8edf2",padding:"48px 32px",textAlign:"center"}}>
+                          <div style={{fontSize:40,marginBottom:12}}>🔭</div>
+                          <div style={{fontSize:15,fontWeight:700,color:"#1e293b",fontFamily:"'DM Sans',sans-serif"}}>No overlaps found for {companyName}</div>
+                          <div style={{fontSize:13,color:"#94a3b8",fontFamily:"'DM Sans',sans-serif",marginTop:6}}>Try adding more detail about their team — especially previous companies and education.</div>
+                        </div>
+                      )}
+                    </div>
                   )}
 
-                  {view==="list"&&<OverlapList overlaps={results} groupBy={groupBy} filter={filter}/>}
-
-                  {total===0&&(
-                    <div style={{background:"#fff",borderRadius:20,border:"1px solid #e8edf2",padding:"48px 32px",textAlign:"center"}}>
-                      <div style={{fontSize:40,marginBottom:12}}>🔭</div>
-                      <div style={{fontSize:15,fontWeight:700,color:"#1e293b",fontFamily:"'DM Sans',sans-serif"}}>No overlaps found for {companyName}</div>
-                      <div style={{fontSize:13,color:"#94a3b8",fontFamily:"'DM Sans',sans-serif",marginTop:6}}>
-                        {backendStatus==="live"?"Try enriching their team data by adding people via 'Add Company'.":"Try one of the demo companies, or start the backend for full access."}
+                  {/* Empty state */}
+                  {!results&&!loading&&(
+                    <div style={{background:"#fff",borderRadius:20,border:"1px solid #e8edf2",padding:"48px 32px",textAlign:"center",animation:"fadeUp 0.4s ease 0.1s both"}}>
+                      <div style={{fontSize:44,marginBottom:14}}>🕸️</div>
+                      <div style={{fontSize:16,fontWeight:700,color:"#1e293b",fontFamily:"'DM Sans',sans-serif",marginBottom:6}}>Find your strongest path in</div>
+                      <div style={{fontSize:13,color:"#64748b",fontFamily:"'DM Sans',sans-serif",maxWidth:400,margin:"0 auto",lineHeight:1.6}}>
+                        Paste a LinkedIn company URL and hit Find Overlaps — or click <strong>+ Add Company</strong> to add a new company with their team details.
+                      </div>
+                      <div style={{display:"flex",justifyContent:"center",gap:24,marginTop:28,flexWrap:"wrap"}}>
+                        {[{icon:"🏢",label:"Company overlap"},{icon:"🎓",label:"School connections"},{icon:"🪑",label:"Board seats"},{icon:"📍",label:"Location proximity"}].map(({icon,label})=>(
+                          <div key={label} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8}}>
+                            <div style={{width:44,height:44,borderRadius:12,background:"#f8fafc",border:"1.5px solid #e8edf2",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>{icon}</div>
+                            <span style={{fontSize:11,fontWeight:600,color:"#94a3b8",fontFamily:"'DM Sans',sans-serif"}}>{label}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{marginTop:24,padding:"12px 20px",background:"#f8fafc",borderRadius:12,display:"inline-block"}}>
+                        <div style={{fontSize:12,color:"#475569",fontFamily:"'DM Sans',sans-serif"}}>💾 Companies you add are saved in <strong>this browser</strong> — no server or account needed.</div>
                       </div>
                     </div>
                   )}
-                </div>
-              )}
 
-              {/* Empty start state */}
-              {!results&&!loading&&(
-                <div style={{background:"#fff",borderRadius:20,border:"1px solid #e8edf2",padding:"48px 32px",textAlign:"center",animation:"fadeUp 0.4s ease 0.1s both"}}>
-                  <div style={{fontSize:44,marginBottom:14}}>🕸️</div>
-                  <div style={{fontSize:16,fontWeight:700,color:"#1e293b",fontFamily:"'DM Sans',sans-serif",marginBottom:6}}>Find your strongest path in</div>
-                  <div style={{fontSize:13,color:"#94a3b8",fontFamily:"'DM Sans',sans-serif",maxWidth:360,margin:"0 auto"}}>
-                    Enter a LinkedIn company URL to discover which Smith Point team members have the deepest relationships with their leadership.
-                  </div>
-                  <div style={{display:"flex",justifyContent:"center",gap:24,marginTop:28,flexWrap:"wrap"}}>
-                    {[{icon:"🏢",label:"Company overlap"},{icon:"🎓",label:"School connections"},{icon:"🪑",label:"Board seats"},{icon:"🤝",label:"Prior interactions"},{icon:"📍",label:"Location proximity"}].map(({icon,label})=>(
-                      <div key={label} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8}}>
-                        <div style={{width:44,height:44,borderRadius:12,background:"#f8fafc",border:"1.5px solid #e8edf2",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>{icon}</div>
-                        <span style={{fontSize:11,fontWeight:600,color:"#94a3b8",fontFamily:"'DM Sans',sans-serif"}}>{label}</span>
-                      </div>
-                    ))}
-                  </div>
-                  {backendStatus==="offline"&&(
-                    <div style={{marginTop:24,display:"inline-block",padding:"12px 20px",background:"#fffbeb",border:"1px solid #fde68a",borderRadius:12}}>
-                      <div style={{fontSize:12,color:"#92400e",fontFamily:"'DM Sans',sans-serif"}}>⚠️ Running in demo mode — backend is offline</div>
-                      <div style={{fontSize:11,color:"#b45309",fontFamily:"'DM Mono',monospace",marginTop:4}}>cd rcp-backend && uvicorn main:app --reload</div>
-                    </div>
-                  )}
                 </div>
-              )}
+              </div>
             </div>
           </div>
         </>
