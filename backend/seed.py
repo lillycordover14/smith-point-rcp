@@ -74,11 +74,13 @@ SP_TEAM = [
         "location": "San Francisco, CA",
         "is_internal": True,
         "orgs": [
-            {"name": "Smith Point Capital", "slug": "smith-point-capital", "start": 2022, "end": None, "board": False},
+            {"name": "Salesforce",          "slug": "salesforce",          "start": 2011, "end": 2020, "board": False},
+            {"name": "Celonis",             "slug": "celonis",             "start": 2020, "end": 2024, "board": False},
+            {"name": "Smith Point Capital", "slug": "smith-point-capital", "start": 2023, "end": None, "board": False},
         ],
         "education": [
-            # LinkedIn shows Columbia Business School
             {"institution": "Columbia Business School", "degree": "MBA", "start": 1992, "end": 1994},
+            {"institution": "UC Berkeley Haas School of Business", "degree": "MBA", "start": 1992, "end": 1994},
         ],
     },
     {
@@ -91,9 +93,14 @@ SP_TEAM = [
         "location": "Chicago, IL",
         "is_internal": True,
         "orgs": [
-            {"name": "Salesforce",          "slug": "salesforce",         "start": 2004, "end": 2019, "board": False},
-            {"name": "ServiceNow",          "slug": "servicenow",         "start": 2019, "end": 2023, "board": False},
-            {"name": "Smith Point Capital", "slug": "smith-point-capital","start": 2023, "end": None,  "board": False},
+            {"name": "Andersen Consulting","slug": "andersen-consulting","start": None, "end": None,  "board": False},
+            {"name": "IBM",                "slug": "ibm",               "start": None, "end": None,  "board": False},
+            {"name": "PeopleSoft",         "slug": "peoplesoft",        "start": None, "end": None,  "board": False},
+            {"name": "Oracle",             "slug": "oracle",            "start": None, "end": None,  "board": False},
+            {"name": "PwC",                "slug": "pwc",               "start": None, "end": None,  "board": False},
+            {"name": "Salesforce",         "slug": "salesforce",        "start": 2004, "end": 2019, "board": False},
+            {"name": "Snowflake",          "slug": "snowflake",         "start": 2023, "end": 2025, "board": False},
+            {"name": "Smith Point Capital","slug": "smith-point-capital","start": 2025, "end": None,  "board": False},
         ],
         "education": [
             # LinkedIn shows University of Illinois at Urbana-Champaign (corrected from Duke)
@@ -144,13 +151,11 @@ SP_TEAM = [
         "current_company": "Smith Point Capital",
         "location": "New York, NY",
         "is_internal": True,
+        # NOTE: Sewon Park does NOT have Goldman Sachs on LinkedIn — corrected per user
         "orgs": [
-            {"name": "Goldman Sachs",       "slug": "goldman-sachs",       "start": 2021, "end": 2022, "board": False},
             {"name": "Smith Point Capital", "slug": "smith-point-capital", "start": 2022, "end": None,  "board": False},
         ],
-        "education": [
-            {"institution": "Harvard University", "degree": "BA", "start": 2017, "end": 2021},
-        ],
+        "education": [],
     },
     {
         "full_name": "Katie Rodday",
